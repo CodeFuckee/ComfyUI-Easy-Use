@@ -1707,24 +1707,43 @@ class loadImageBase64:
   CATEGORY = "EasyUse/Image/LoadImage"
 
   def convert_color(self, image,):
-    if len(image.shape) > 2 and image.shape[2] >= 4:
-      return cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    if image is None:
+      raise ValueError("Invalid image (None)")
+    if len(image.shape) == 2:
+      return cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    if len(image.shape) == 3:
+      if image.shape[2] >= 4:
+        return cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
+      if image.shape[2] == 3:
+        return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+      if image.shape[2] == 1:
+        return cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    raise ValueError(f"Unsupported image shape: {getattr(image, 'shape', None)}")
 
   def load_image(self, base64_data, image_output, save_prefix, prompt=None, extra_pnginfo=None):
-    nparr = np.frombuffer(base64.b64decode(base64_data), np.uint8)
+    if isinstance(base64_data, str) and base64_data.startswith("data:"):
+      base64_data = base64_data.split(",", 1)[-1]
 
+    try:
+      decoded = base64.b64decode(base64_data)
+    except Exception as e:
+      raise ValueError("Invalid base64 image data") from e
+
+    nparr = np.frombuffer(decoded, np.uint8)
     result = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
-    channels = cv2.split(result)
-    if len(channels) > 3:
-      mask = channels[3].astype(np.float32) / 255.0
-      mask = torch.from_numpy(mask)
-    else:
-      mask = torch.ones(channels[0].shape, dtype=torch.float32, device="cpu")
+    if result is None or getattr(result, "size", 0) == 0:
+      raise ValueError("Image decode failed (possibly incomplete PNG input buffer)")
 
-    result = self.convert_color(result)
-    result = result.astype(np.float32) / 255.0
-    new_images = torch.from_numpy(result)[None,]
+    h, w = result.shape[:2]
+    if len(result.shape) == 3 and result.shape[2] >= 4:
+      mask_np = result[:, :, 3].astype(np.float32) / 255.0
+      mask = torch.from_numpy(mask_np)
+    else:
+      mask = torch.ones((h, w), dtype=torch.float32, device="cpu")
+
+    rgb = self.convert_color(result)
+    rgb = rgb.astype(np.float32) / 255.0
+    new_images = torch.from_numpy(rgb)[None,]
 
     results = easySave(new_images, save_prefix, image_output, None, None)
     mask = mask.unsqueeze(0)
@@ -2085,6 +2104,38 @@ class makeImageForICRepaint:
     return (image, mask, context_mask, img2_w, img2_h, x, y)
 
 
+class imageToBase64TryCatch:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+        "required": {
+            "image": ("IMAGE",),
+        },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    FUNCTION = "to_base64"
+    CATEGORY = "EasyUse/Image"
+    OUTPUT_NODE = True
+
+    def to_base64(self, image, ):
+      try:
+        import base64
+        from io import BytesIO
+
+        # 将张量图像转换为PIL图像
+        pil_image = tensor2pil(image)
+
+        buffered = BytesIO()
+        pil_image.save(buffered, format="PNG")
+        image_bytes = buffered.getvalue()
+
+        base64_str = base64.b64encode(image_bytes).decode("utf-8")
+        return {"result": (base64_str,)}
+      except Exception as e:
+        print(str(e))
+        return {"result": ('',)}
+
 NODE_CLASS_MAPPINGS = {
   "easy imageInsetCrop": imageInsetCrop,
   "easy imageCount": imageCount,
@@ -2117,6 +2168,7 @@ NODE_CLASS_MAPPINGS = {
   "easy loadImagesForLoop": loadImagesForLoop,
   "easy loadImageBase64": loadImageBase64,
   "easy imageToBase64": imageToBase64,
+  "easy imageToBase64 try catch": imageToBase64TryCatch,
   "easy imagesToBase64": imagesToBase64,
   "easy joinImageBatch": JoinImageBatch,
   "easy humanSegmentation": humanSegmentation,
@@ -2158,6 +2210,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
   "easy loadImageBase64": "Load Image (Base64)",
   "easy loadImagesForLoop": "Load Images For Loop",
   "easy imageToBase64": "Image To Base64",
+  "easy imageToBase64 try catch": "Image To Base64 Try Catch",
   "easy imagesToBase64": "Images To Base64",
   "easy humanSegmentation": "Human Segmentation",
   "easy removeLocalImage": "Remove Local Image",
