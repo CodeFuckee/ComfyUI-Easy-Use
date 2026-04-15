@@ -1770,18 +1770,21 @@ class imageToBase64:
     OUTPUT_NODE = True
 
     def to_base64(self, image, ):
-      import base64
-      from io import BytesIO
+      try:
+        import base64
+        from io import BytesIO
 
-      # 将张量图像转换为PIL图像
-      pil_image = tensor2pil(image)
+        # 将张量图像转换为PIL图像
+        pil_image = tensor2pil(image)
 
-      buffered = BytesIO()
-      pil_image.save(buffered, format="PNG")
-      image_bytes = buffered.getvalue()
+        buffered = BytesIO()
+        pil_image.save(buffered, format="PNG")
+        image_bytes = buffered.getvalue()
 
-      base64_str = base64.b64encode(image_bytes).decode("utf-8")
-      return {"result": (base64_str,)}
+        base64_str = base64.b64encode(image_bytes).decode("utf-8")
+        return {"result": (base64_str,)}
+      except Exception:
+        return {"result": ("",)}
 
 class imagesToBase64:
     @classmethod
